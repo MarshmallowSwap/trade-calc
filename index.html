@@ -157,6 +157,25 @@ body{font-family:MiSans,sans-serif;background:var(--bg);color:var(--text);height
 .cp-confirm{padding:11px 14px;border-radius:10px;border:none;font-size:12px;font-weight:800;background:linear-gradient(135deg,var(--or),#FF4500);color:#fff;cursor:pointer;font-family:MiSans,sans-serif;white-space:nowrap}
 .cp-hint{font-size:9px;color:var(--mu);margin-top:5px}
 
+/* EDIT PANEL */
+.ep{background:var(--s3);border:1px solid rgba(59,130,246,.35);border-radius:12px;padding:12px;margin-top:9px}
+.ep-ttl{font-size:9px;color:var(--b);font-weight:700;letter-spacing:.8px;text-transform:uppercase;margin-bottom:10px}
+.ep-g2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.ep-fl{margin-bottom:8px}.ep-fl:last-child{margin-bottom:0}
+.ep-lbl{font-size:9px;color:var(--mu);margin-bottom:4px}
+.ep-inp{width:100%;background:var(--s2);border:1.5px solid var(--bd);border-radius:8px;color:var(--text);font-family:MiSans,sans-serif;font-size:14px;font-weight:600;padding:10px 36px 10px 10px;outline:none;-webkit-appearance:none;transition:border-color .15s}
+.ep-inp:focus{border-color:rgba(59,130,246,.5)}
+.ep-iw{position:relative}
+.ep-u{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--mu);font-weight:700;pointer-events:none}
+.ep-dir{display:flex;gap:6px;margin-bottom:8px}
+.ep-dir-btn{flex:1;padding:9px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid var(--bd);background:var(--s2);color:var(--mu);cursor:pointer;font-family:MiSans,sans-serif;transition:all .15s}
+.ep-dir-btn.long.on{background:var(--gd);border-color:var(--gb);color:var(--g)}
+.ep-dir-btn.short.on{background:var(--rd);border-color:var(--rb);color:var(--r)}
+.ep-actions{display:flex;gap:8px;margin-top:10px}
+.ep-save{flex:1;padding:11px;border-radius:9px;border:none;font-size:13px;font-weight:800;background:var(--b);color:#fff;cursor:pointer;font-family:MiSans,sans-serif}
+.ep-cancel{padding:11px 14px;border-radius:9px;border:1px solid var(--bd);background:transparent;color:var(--mu);font-size:12px;font-weight:700;cursor:pointer;font-family:MiSans,sans-serif}
+.btn-edit{padding:8px 13px;border-radius:9px;font-size:11px;font-weight:700;background:var(--bd2);border:1px solid var(--bb);color:var(--b);cursor:pointer;font-family:MiSans,sans-serif}
+
 /* SUMMARY */
 .sum-hero{text-align:center;padding:18px 0 14px;border-bottom:1px solid var(--bd);margin-bottom:12px}
 .sum-hero-lbl{font-size:9px;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
@@ -577,6 +596,82 @@ function delTrade(id){
   sv(); rHist(); rSum(); rHdr(); toast('Deleted');
 }
 
+// ── EDIT TRADE ────────────────────────────────────────────────
+function toggleEdit(id){
+  const ep=document.getElementById('ep-'+id);
+  if(!ep)return;
+  const isOpen=ep.style.display==='none';
+  ep.style.display=isOpen?'block':'none';
+  // close close-panel if open
+  if(isOpen){const cp=document.getElementById('cp-'+id);if(cp)cp.style.display='none';}
+}
+
+// track per-edit direction (separate from global state.dir)
+const _epDir={};
+function epSetDir(id,d){
+  _epDir[id]=d;
+  const wrap=document.getElementById('epdir-'+id);
+  if(!wrap)return;
+  wrap.querySelectorAll('.ep-dir-btn').forEach(b=>{
+    b.classList.toggle('on',b.classList.contains(d));
+  });
+}
+
+function saveEdit(id){
+  const t=state.trades.find(x=>x.id===id);
+  if(!t)return;
+
+  const gep=(field)=>{const e=document.getElementById('ep-'+field+'-'+id);return e?e.value:null};
+  const gpf=(field)=>parseFloat(gep(field))||0;
+
+  const cap=gpf('cap'), lev=gpf('lev'), tp=gpf('tp'), sl=gpf('sl');
+  const entry=gpf('entry'), extra=gpf('extra');
+  const note=(document.getElementById('ep-note-'+id)?.value||'').trim();
+  const dir=_epDir[id]||t.dir;
+
+  if(!cap||!lev){toast('Capital and leverage are required');return}
+
+  const pos=cap*lev;
+  const totalMrg=cap+(extra||0);
+
+  // recalculate price targets
+  let tpPrice=null,slPrice=null,liqPrice=null;
+  if(entry>0){
+    if(dir==='long'){
+      tpPrice=tp?entry*(1+tp/(100*lev)):null;
+      slPrice=sl?entry*(1-sl/(100*lev)):null;
+      liqPrice=entry*(1-totalMrg/pos+MMR);
+    }else{
+      tpPrice=tp?entry*(1-tp/(100*lev)):null;
+      slPrice=sl?entry*(1+sl/(100*lev)):null;
+      liqPrice=entry*(1+totalMrg/pos-MMR);
+    }
+  }
+
+  // update trade object
+  t.dir=dir; t.cap=cap; t.lev=lev; t.tp=tp; t.sl=sl;
+  t.tpU=cap*(tp/100); t.slU=cap*(sl/100);
+  t.entry=entry||null; t.extra=extra||0;
+  t.tpPrice=tpPrice; t.slPrice=slPrice; t.liqPrice=liqPrice;
+  t.note=note;
+
+  // if closed trade and realPct was edited, recalculate realPnl
+  if(t.status!=='open'){
+    const rpctEl=document.getElementById('ep-rpct-'+id);
+    if(rpctEl&&rpctEl.value!==''){
+      const v=parseFloat(rpctEl.value);
+      if(!isNaN(v)){
+        t.realPct=v;
+        t.realPnl=cap*(v/100);
+        t.status=v>=0?'profit':'loss';
+      }
+    }
+  }
+
+  sv(); rHist(); rSum(); rHdr();
+  toast('Trade #'+id+' updated!');
+}
+
 // ── PORTFOLIO MODAL ───────────────────────────────────────────
 function openPortModal(){
   const m=document.getElementById('portModal');
@@ -664,6 +759,30 @@ function rHist(){
         <div class="cp-hint">Positive = profit · Negative = loss</div>
       </div>`:'';
 
+    // Edit panel — available on all trades
+    const epHTML=`
+      <div class="ep" id="ep-${t.id}" style="display:none">
+        <div class="ep-ttl">✎ Edit Trade #${t.id}</div>
+        <div class="ep-dir" id="epdir-${t.id}">
+          <button class="ep-dir-btn long${t.dir==='long'?' on':''}" onclick="epSetDir(${t.id},'long')">▲ LONG</button>
+          <button class="ep-dir-btn short${t.dir==='short'?' on':''}" onclick="epSetDir(${t.id},'short')">▼ SHORT</button>
+        </div>
+        <div class="ep-g2">
+          <div class="ep-fl"><div class="ep-lbl">Capital (USDT)</div><div class="ep-iw"><input class="ep-inp" id="ep-cap-${t.id}" type="number" inputmode="decimal" value="${t.cap}"/><span class="ep-u">USDT</span></div></div>
+          <div class="ep-fl"><div class="ep-lbl">Leverage</div><div class="ep-iw"><input class="ep-inp" id="ep-lev-${t.id}" type="number" inputmode="decimal" value="${t.lev}"/><span class="ep-u">x</span></div></div>
+          <div class="ep-fl"><div class="ep-lbl">Take Profit %</div><div class="ep-iw"><input class="ep-inp" id="ep-tp-${t.id}" type="number" inputmode="decimal" value="${t.tp}"/><span class="ep-u">%</span></div></div>
+          <div class="ep-fl"><div class="ep-lbl">Stop Loss %</div><div class="ep-iw"><input class="ep-inp" id="ep-sl-${t.id}" type="number" inputmode="decimal" value="${t.sl}"/><span class="ep-u">%</span></div></div>
+          <div class="ep-fl"><div class="ep-lbl">Entry Price</div><div class="ep-iw"><input class="ep-inp" id="ep-entry-${t.id}" type="number" inputmode="decimal" value="${t.entry||''}"/><span class="ep-u">$</span></div></div>
+          <div class="ep-fl"><div class="ep-lbl">Extra Margin</div><div class="ep-iw"><input class="ep-inp" id="ep-extra-${t.id}" type="number" inputmode="decimal" value="${t.extra||''}"/><span class="ep-u">USDT</span></div></div>
+        </div>
+        ${!isOp?`<div class="ep-fl"><div class="ep-lbl">Real PnL % (result)</div><div class="ep-iw"><input class="ep-inp" id="ep-rpct-${t.id}" type="number" inputmode="decimal" value="${t.realPct??''}"/><span class="ep-u">%</span></div></div>`:''}
+        <div class="ep-fl"><div class="ep-lbl">Note</div><input class="ep-inp" id="ep-note-${t.id}" type="text" value="${(t.note||'').replace(/"/g,'&quot;')}" style="padding:10px;width:100%"/></div>
+        <div class="ep-actions">
+          <button class="ep-save" onclick="saveEdit(${t.id})">Save Changes</button>
+          <button class="ep-cancel" onclick="toggleEdit(${t.id})">Cancel</button>
+        </div>
+      </div>`;
+
     return`<div class="te ${ec}">
       <div class="te-top">
         <span class="te-num">#${t.id} · ${t.openAt}</span>
@@ -681,8 +800,10 @@ function rHist(){
         ${pnlHTML}
       </div>
       ${cpHTML}
+      ${epHTML}
       <div class="te-actions">
         ${isOp?`<button class="btn-close-trade" onclick="toggleClose(${t.id})">Close Trade</button>`:''}
+        <button class="btn-edit" onclick="toggleEdit(${t.id})">✎ Edit</button>
         <button class="btn-del" onclick="delTrade(${t.id})">Delete</button>
       </div>
     </div>`;
